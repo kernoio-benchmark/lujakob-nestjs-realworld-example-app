@@ -1,8 +1,7 @@
-# Multi-stage Dockerfile for NestJS Realworld Example App
-
 # Stage 1: Build stage
 FROM node:14-alpine AS builder
 
+# Set working directory
 WORKDIR /app
 
 # Install build dependencies for native modules (argon2)
@@ -17,16 +16,17 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Create the missing config file with SECRET constant
+# Create config file with SECRET if it doesn't exist
 RUN mkdir -p src && \
     echo "export const SECRET = process.env.SECRET || 'secret';" > src/config.ts
 
-# Build the application (compile TypeScript to dist/)
+# Build the application
 RUN npm run prestart:prod
 
 # Stage 2: Production stage
 FROM node:14-alpine
 
+# Set working directory
 WORKDIR /app
 
 # Install build dependencies for native modules (argon2)
@@ -42,17 +42,20 @@ RUN npm ci --only=production && \
 # Remove build dependencies to reduce image size
 RUN apk del python3 make g++
 
-# Copy compiled application from builder stage
+# Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy index.js (main entry point)
+# Copy any other necessary files (like index.js if needed)
 COPY index.js ./
 
-# Expose application port
+# Expose the application port (default NestJS port)
 EXPOSE 3000
 
 # Set NODE_ENV to production
 ENV NODE_ENV=production
 
-# Run the application in production mode
-CMD ["npm", "run", "start:prod"]
+# Set default SECRET (should be overridden in production)
+ENV SECRET=changeme
+
+# Run the compiled application directly
+CMD ["node", "dist/main.js"]

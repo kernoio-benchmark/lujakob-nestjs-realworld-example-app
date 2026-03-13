@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   postgres:
     image: "postgres:14-alpine"
@@ -9,87 +11,93 @@ services:
         reservations:
           memory: 128M
     environment:
-      - "POSTGRES_USER=test_user"
-      - "POSTGRES_PASSWORD=test_password"
-      - "POSTGRES_DB=test_db"
+      - "POSTGRES_USER=realworld_user"
+      - "POSTGRES_PASSWORD=realworld_password"
+      - "POSTGRES_DB=realworld_db"
     ports:
       - "5432"
     healthcheck:
       test:
         - "CMD-SHELL"
-        - "pg_isready -U test_user -d test_db"
+        - "pg_isready -U realworld_user -d realworld_db"
       interval: "3s"
       timeout: "5s"
       retries: "10"
     tmpfs:
       - /var/lib/postgresql/data
     labels:
-      - external-url=postgresql://localhost:{{PORT}}/test_db?user=test_user&password=test_password
+      - external-url=postgresql://localhost:{{PORT}}/realworld_db?user=realworld_user&password=realworld_password
 
   sut:
     build:
       context: ${BUILD_CONTEXT}
       dockerfile_inline: |
-        # Multi-stage Dockerfile for NestJS Realworld Example App
-        
         # Stage 1: Build stage
         FROM node:14-alpine AS builder
-        
+
+        # Set working directory
         WORKDIR /app
-        
+
         # Install build dependencies for native modules (argon2)
         RUN apk add --no-cache python3 make g++
-        
+
         # Copy package files
         COPY package*.json ./
-        
+
         # Install all dependencies (including devDependencies for build)
         RUN npm ci
-        
+
+        # Install pg driver for PostgreSQL
+        RUN npm install pg --save
+
         # Copy source code
         COPY . .
-        
-        # Create the missing config file with SECRET constant
+
+        # Create config file with SECRET if it doesn't exist
         RUN mkdir -p src && \
             echo "export const SECRET = process.env.SECRET || 'secret';" > src/config.ts
-        
-        # Build the application (compile TypeScript to dist/)
+
+        # Build the application
         RUN npm run prestart:prod
-        
+
         # Stage 2: Production stage
         FROM node:14-alpine
-        
+
+        # Set working directory
         WORKDIR /app
-        
+
         # Install build dependencies for native modules (argon2)
         RUN apk add --no-cache python3 make g++
-        
+
         # Copy package files
         COPY package*.json ./
-        
+
         # Install only production dependencies
         RUN npm ci --only=production && \
             npm cache clean --force
-        
+
+        # Install pg driver for PostgreSQL
+        RUN npm install pg --save
+
         # Remove build dependencies to reduce image size
         RUN apk del python3 make g++
-        
-        # Copy compiled application from builder stage
+
+        # Copy built application from builder stage
         COPY --from=builder /app/dist ./dist
-        
-        # Copy index.js (main entry point)
+
+        # Copy any other necessary files (like index.js if needed)
         COPY index.js ./
-        
-        # Copy src directory for entity files
-        COPY --from=builder /app/src ./src
-        
-        # Expose application port
+
+        # Expose the application port (default NestJS port)
         EXPOSE 3000
-        
+
         # Set NODE_ENV to production
         ENV NODE_ENV=production
-        
-        # Run the application in production mode
+
+        # Set default SECRET (should be overridden in production)
+        ENV SECRET=changeme
+
+        # Run the compiled application directly
         CMD ["node", "dist/main.js"]
     depends_on:
       postgres:
